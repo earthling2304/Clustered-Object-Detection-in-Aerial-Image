@@ -95,6 +95,7 @@ def main():
     logger.info('Called with args:')
     logger.info(args)
     if args.cfg_file is not None:
+        print(args.cfg_file)
         merge_cfg_from_file(args.cfg_file)
     if args.opts is not None:
         merge_cfg_from_list(args.opts)
