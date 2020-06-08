@@ -1,6 +1,4 @@
 function add_cluster_annotation
-%add cluster ground truth to original annotation
-%cluster ground truth is labeled as 11
 addpath('./MeanShift');
 gt_txt_path=['/media/fanyang/C/data/visdrone/VisDrone2018-DET-train/annotations_coco_format_rename'];
 img_path='/media/fanyang/C/data/visdrone/VisDrone2018-DET-train/images_coco_format_rename';
