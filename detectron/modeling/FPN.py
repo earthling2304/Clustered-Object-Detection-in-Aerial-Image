@@ -390,7 +390,7 @@ def add_fpn_rpn_outputs(model, blobs_in, dim_in, spatial_scales):
                 bias='conv_rpn_fpn' + sk_min + '_b'
             )
             model.Relu(conv_rpn_fpn, conv_rpn_fpn)
-            # Proposal classification scores
+            # Cluster Proposal classification scores
             rpn_cls_logits_fpn = model.ConvShared(
                 conv_rpn_fpn,
                 'rpn_cls_logits_fpn' + slvl,
@@ -436,6 +436,121 @@ def add_fpn_rpn_outputs(model, blobs_in, dim_in, spatial_scales):
                 spatial_scale=sc
             )
 
+def add_fpn_cluster_rpn_outputs(model, blobs_in, dim_in, spatial_scales):
+    """Add Cluster RPN on FPN specific outputs."""
+    num_anchors = len(cfg.FPN.Cluster_RPN_ASPECT_RATIOS)
+    dim_out = dim_in
+
+    k_max = cfg.FPN.Cluster_RPN_MAX_LEVEL  # coarsest level of pyramid
+    k_min = cfg.FPN.Cluster_RPN_MIN_LEVEL  # finest level of pyramid
+    assert len(blobs_in) == k_max - k_min + 1
+    for lvl in range(k_min, k_max + 1):
+        bl_in = blobs_in[k_max - lvl]  # blobs_in is in reversed order
+        sc = spatial_scales[k_max - lvl]  # in reversed order
+        slvl = str(lvl)
+
+        if lvl == k_min:
+            # Create conv ops with randomly initialized weights and
+            # zeroed biases for the first FPN level; these will be shared by
+            # all other FPN levels
+            # RPN hidden representation
+            conv_cluster_rpn_fpn = model.Conv(
+                bl_in,
+                'conv_cluster_rpn_fpn' + slvl,
+                dim_in,
+                dim_out,
+                kernel=3,
+                pad=1,
+                stride=1,
+                weight_init=gauss_fill(0.01),
+                bias_init=const_fill(0.0)
+            )
+            model.Relu(conv_cluster_rpn_fpn, conv_cluster_rpn_fpn)
+            # Cluster Proposal classification scores
+            cluster_rpn_cls_logits_fpn = model.Conv(
+                conv_cluster_rpn_fpn,
+                'cluster_rpn_cls_logits_fpn' + slvl,
+                dim_in,
+                num_anchors,
+                kernel=1,
+                pad=0,
+                stride=1,
+                weight_init=gauss_fill(0.01),
+                bias_init=const_fill(0.0)
+            )
+            # Cluster Proposal bbox regression deltas
+            cluster_rpn_bbox_pred_fpn = model.Conv(
+                conv_cluster_rpn_fpn,
+                'cluster_rpn_bbox_pred_fpn' + slvl,
+                dim_in,
+                4 * num_anchors,
+                kernel=1,
+                pad=0,
+                stride=1,
+                weight_init=gauss_fill(0.01),
+                bias_init=const_fill(0.0)
+            )
+        else:
+            # Share weights and biases
+            sk_min = str(k_min)
+            # Cluster RPN hidden representation
+            conv_cluster_rpn_fpn = model.ConvShared(
+                bl_in,
+                'conv_cluster_rpn_fpn' + slvl,
+                dim_in,
+                dim_out,
+                kernel=3,
+                pad=1,
+                stride=1,
+                weight='conv_cluster_rpn_fpn' + sk_min + '_w',
+                bias='conv_cluster_rpn_fpn' + sk_min + '_b'
+            )
+            model.Relu(conv_cluster_rpn_fpn, conv_cluster_rpn_fpn)
+            # Cluster Proposal classification scores
+            cluster_rpn_cls_logits_fpn = model.ConvShared(
+                conv_cluster_rpn_fpn,
+                'cluster_rpn_cls_logits_fpn' + slvl,
+                dim_in,
+                num_anchors,
+                kernel=1,
+                pad=0,
+                stride=1,
+                weight='cluster_rpn_cls_logits_fpn' + sk_min + '_w',
+                bias='cluster_rpn_cls_logits_fpn' + sk_min + '_b'
+            )
+            # Cluster Proposal bbox regression deltas
+            cluster_rpn_bbox_pred_fpn = model.ConvShared(
+                conv_cluster_rpn_fpn,
+                'cluster_rpn_bbox_pred_fpn' + slvl,
+                dim_in,
+                4 * num_anchors,
+                kernel=1,
+                pad=0,
+                stride=1,
+                weight='cluster_rpn_bbox_pred_fpn' + sk_min + '_w',
+                bias='cluster_rpn_bbox_pred_fpn' + sk_min + '_b'
+            )
+
+        if not model.train or cfg.MODEL.FASTER_RCNN:
+            # Proposals are needed during:
+            #  1) inference (== not model.train) for RPN only and Faster R-CNN
+            #  OR
+            #  2) training for Faster R-CNN
+            # Otherwise (== training for RPN only), proposals are not needed
+            lvl_anchors = generate_anchors(
+                stride=2.**lvl,
+                sizes=(cfg.FPN.Cluster_RPN_ANCHOR_START_SIZE * 2.**(lvl - k_min), ),
+                aspect_ratios=cfg.FPN.RPN_ASPECT_RATIOS
+            )
+            cluster_rpn_cls_probs_fpn = model.net.Sigmoid(
+                cluster_rpn_cls_logits_fpn, 'cluster_rpn_cls_probs_fpn' + slvl
+            )
+            model.GenerateClusterProposals(
+                [cluster_rpn_cls_probs_fpn, cluster_rpn_bbox_pred_fpn, 'im_info'],
+                ['cluster_rpn_rois_fpn' + slvl, 'cluster_rpn_roi_probs_fpn' + slvl],
+                anchors=lvl_anchors,
+                spatial_scale=sc
+            )
 
 def add_fpn_rpn_losses(model):
     """Add RPN on FPN specific losses."""
@@ -485,6 +600,53 @@ def add_fpn_rpn_losses(model):
         model.AddLosses(['loss_rpn_cls_fpn' + slvl, 'loss_rpn_bbox_fpn' + slvl])
     return loss_gradients
 
+def add_fpn_cluster_rpn_losses(model):
+    """Add Cluster RPN on FPN specific losses."""
+    loss_gradients = {}
+    for lvl in range(cfg.FPN.Cluster_RPN_MIN_LEVEL, cfg.FPN.Cluster_RPN_MAX_LEVEL + 1):
+        slvl = str(lvl)
+        # Spatially narrow the full-sized cluster RPN label arrays to match the feature map
+        # shape
+        model.net.SpatialNarrowAs(
+            ['cluster_rpn_labels_int32_wide_fpn' + slvl, 'cluster_rpn_cls_logits_fpn' + slvl],
+            'cluster_rpn_labels_int32_fpn' + slvl
+        )
+        for key in ('targets', 'inside_weights', 'outside_weights'):
+            model.net.SpatialNarrowAs(
+                [
+                    'cluster_rpn_bbox_' + key + '_wide_fpn' + slvl,
+                    'cluster_rpn_bbox_pred_fpn' + slvl
+                ],
+                'cluster_rpn_bbox_' + key + '_fpn' + slvl
+            )
+        loss_cluster_rpn_cls_fpn = model.net.SigmoidCrossEntropyLoss(
+            ['cluster_rpn_cls_logits_fpn' + slvl, 'cluster_rpn_labels_int32_fpn' + slvl],
+            'loss_cluster_rpn_cls_fpn' + slvl,
+            normalize=0,
+            scale=(
+                model.GetLossScale() / cfg.TRAIN.RPN_BATCH_SIZE_PER_IM /
+                cfg.TRAIN.IMS_PER_BATCH
+            )
+        )
+        # Normalization by (1) RPN_BATCH_SIZE_PER_IM and (2) IMS_PER_BATCH is
+        # handled by (1) setting bbox outside weights and (2) SmoothL1Loss
+        # normalizes by IMS_PER_BATCH
+        loss_cluster_rpn_bbox_fpn = model.net.SmoothL1Loss(
+            [
+                'cluster_rpn_bbox_pred_fpn' + slvl, 'cluster_rpn_bbox_targets_fpn' + slvl,
+                'cluster_rpn_bbox_inside_weights_fpn' + slvl,
+                'cluster_rpn_bbox_outside_weights_fpn' + slvl
+            ],
+            'loss_cluster_rpn_bbox_fpn' + slvl,
+            beta=1. / 9.,
+            scale=model.GetLossScale(),
+        )
+        loss_gradients.update(
+            blob_utils.
+            get_loss_gradients(model, [loss_cluster_rpn_cls_fpn, loss_cluster_rpn_bbox_fpn])
+        )
+        model.AddLosses(['loss_cluster_rpn_cls_fpn' + slvl, 'loss_cluster_rpn_bbox_fpn' + slvl])
+    return loss_gradients
 
 # ---------------------------------------------------------------------------- #
 # Helper functions for working with multilevel FPN RoIs
