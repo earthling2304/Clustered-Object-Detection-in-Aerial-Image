@@ -38,7 +38,7 @@ class AttrDict(dict):
             print("self")
             print(self.__dict__)
             print("self name")
-            print(self[name])
+            print(self)
             raise AttributeError(name)
 
     def __setattr__(self, name, value):
