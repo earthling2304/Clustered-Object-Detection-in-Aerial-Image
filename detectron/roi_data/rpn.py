@@ -82,14 +82,12 @@ def add_rpn_blobs(blobs, im_scales, roidb):
         all_anchors = foa.field_of_anchors
 
     for im_i, entry in enumerate(roidb):
-
         scale = im_scales[im_i]
         im_height = np.round(entry['height'] * scale)
         im_width = np.round(entry['width'] * scale)
         gt_inds = np.where(
-            (entry['gt_classes'] > 0)&(entry['gt_classes'] <cfg.MODEL.NUM_CLASSES)& (entry['is_crowd'] == 0)
+            (entry['gt_classes'] > 0) & (entry['is_crowd'] == 0)
         )[0]
-
         gt_rois = entry['boxes'][gt_inds, :] * scale
         im_info = np.array([[im_height, im_width, scale]], dtype=np.float32)
         blobs['im_info'].append(im_info)

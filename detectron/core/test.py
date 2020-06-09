@@ -157,55 +157,27 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
         workspace.FeedBlob(core.ScopedName(k), v)
     workspace.RunNet(model.net.Proto().name)
 
-    # Names for output blobs
-    if cfg.MODEL.Cluster_RCNN_ON:
-        rois_name = 'cluster_rois'
-        cls_prob_name = 'cluster_cls_prob'
-        bbox_pred_name = 'cluster_bbox_pred'
-    else:
-        rois_name = 'rois'
-        cls_prob_name = 'cls_prob'
-        bbox_pred_name = 'bbox_pred'
-    # bbox regression weights
-    bbox_reg_weights = cfg.MODEL.BBOX_REG_WEIGHTS
-    score_rescalar = 1.0
-    if cfg.MODEL.CASCADE_ON:
-        stage = cfg.CASCADE_RCNN.TEST_STAGE
-        if stage <= 0:
-            stage = cfg.CASCADE_RCNN.NUM_STAGE
-        assert stage <= cfg.CASCADE_RCNN.NUM_STAGE
-        if stage >= 2:
-            rois_name += '_{}'.format(stage)
-            cls_prob_name += '_{}'.format(stage)
-            bbox_pred_name += '_{}'.format(stage)
-            bbox_reg_weights = cfg.CASCADE_RCNN.BBOX_REG_WEIGHTS[stage - 1]
-        if cfg.CASCADE_RCNN.TEST_ENSEMBLE:
-            assert stage >= 2
-            cls_prob_name += '_sum'
-            score_rescalar /= stage
-
     # Read out blobs
     if cfg.MODEL.FASTER_RCNN:
-        rois = workspace.FetchBlob(core.ScopedName(rois_name))
+        rois = workspace.FetchBlob(core.ScopedName('rois'))
         # unscale back to raw image space
         boxes = rois[:, 1:5] / im_scale
 
     # Softmax class probabilities
-    scores = workspace.FetchBlob(core.ScopedName(cls_prob_name)).squeeze()
+    scores = workspace.FetchBlob(core.ScopedName('cls_prob')).squeeze()
     # In case there is 1 proposal
     scores = scores.reshape([-1, scores.shape[-1]])
-    scores *= score_rescalar
 
     if cfg.TEST.BBOX_REG:
         # Apply bounding-box regression deltas
-        box_deltas = workspace.FetchBlob(core.ScopedName(bbox_pred_name)).squeeze()
+        box_deltas = workspace.FetchBlob(core.ScopedName('bbox_pred')).squeeze()
         # In case there is 1 proposal
         box_deltas = box_deltas.reshape([-1, box_deltas.shape[-1]])
         if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:
             # Remove predictions for bg class (compat with MSRA code)
             box_deltas = box_deltas[:, -4:]
         pred_boxes = box_utils.bbox_transform(
-            boxes, box_deltas, bbox_reg_weights
+            boxes, box_deltas, cfg.MODEL.BBOX_REG_WEIGHTS
         )
         pred_boxes = box_utils.clip_tiled_boxes(pred_boxes, im.shape)
         if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG:
@@ -789,8 +761,6 @@ def box_results_with_nms_and_limit(scores, boxes):
     box at `boxes[i, j * 4:(j + 1) * 4]`.
     """
     num_classes = cfg.MODEL.NUM_CLASSES
-    if cfg.MODEL.Cluster_RCNN_ON:
-        num_classes=2
     cls_boxes = [[] for _ in range(num_classes)]
     # Apply threshold on detection probabilities and apply NMS
     # Skip j = 0, because it's the background class

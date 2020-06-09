@@ -32,17 +32,9 @@ from caffe2.python.modeling.parameter_info import ParameterTags
 from detectron.core.config import cfg
 from detectron.ops.collect_and_distribute_fpn_rpn_proposals \
     import CollectAndDistributeFpnRpnProposalsOp
-from detectron.ops.collect_and_distribute_fpn_cluster_proposals \
-    import CollectAndDistributeFpnClusterProposalsOp
-
-from detectron.ops.distribute_cascade_proposals import DistributeCascadeProposalsOp
 from detectron.ops.generate_proposal_labels import GenerateProposalLabelsOp
 from detectron.ops.generate_proposals import GenerateProposalsOp
-from detectron.ops.decode_bboxes import DecodeBBoxesOp
-from detectron.ops.bbox_accuracy import BBoxAccuracyOp
 import detectron.roi_data.fast_rcnn as fast_rcnn_roi_data
-import detectron.roi_data.cluster_rcnn as cluster_rcnn_roi_data
-import detectron.roi_data.cascade_rcnn as cascade_rcnn_roi_data
 import detectron.utils.c2 as c2_utils
 
 logger = logging.getLogger(__name__)
@@ -72,7 +64,6 @@ class DetectionModelHelper(cnn.CNNModelHelper):
         self.net.Proto().num_workers = cfg.NUM_GPUS * 4
         self.prev_use_cudnn = self.use_cudnn
         self.gn_params = []  # Param on this list are GroupNorm parameters
-        self.stage_params = {}  # Param on this list are updated with scalars
 
     def TrainableParams(self, gpu_id=-1):
         """Get the blob names for all trainable parameters, possibly filtered by
@@ -139,14 +130,42 @@ class DetectionModelHelper(cnn.CNNModelHelper):
           - 'rpn_roi_probs': 1D tensor of objectness probability scores
             (extracted from rpn_cls_probs; see above).
         """
-        name = 'GenerateProposalsOp:' + ','.join([str(b) for b in blobs_in])
-        # spatial_scale passed to the Python op is only used in convert_pkl_to_pb
-        self.net.Python(
-            GenerateProposalsOp(anchors, spatial_scale, self.train).forward
-        )(blobs_in, blobs_out, name=name, spatial_scale=spatial_scale)
+        cfg_key = 'TRAIN' if self.train else 'TEST'
+
+        if cfg[cfg_key].GENERATE_PROPOSALS_ON_GPU:
+            rpn_pre_nms_topN = cfg[cfg_key].RPN_PRE_NMS_TOP_N
+            rpn_post_nms_topN = cfg[cfg_key].RPN_POST_NMS_TOP_N
+            rpn_nms_thresh = cfg[cfg_key].RPN_NMS_THRESH
+            rpn_min_size = float(cfg[cfg_key].RPN_MIN_SIZE)
+
+            input_name = str(blobs_in[0])
+            lvl = int(input_name[-1]) if input_name[-1].isdigit() else None
+            anchors_name = 'anchors{}'.format(lvl) if lvl else 'anchors'
+
+            for i in range(cfg.NUM_GPUS):
+                with c2_utils.CudaScope(i):
+                    workspace.FeedBlob(
+                        'gpu_{}/{}'.format(i, anchors_name),
+                        anchors.astype(np.float32))
+
+            self.net.GenerateProposals(
+                blobs_in + [anchors_name],
+                blobs_out,
+                spatial_scale=spatial_scale,
+                pre_nms_topN=rpn_pre_nms_topN,
+                post_nms_topN=rpn_post_nms_topN,
+                nms_thresh=rpn_nms_thresh,
+                min_size=rpn_min_size,
+            )
+        else:
+            name = 'GenerateProposalsOp:' + ','.join([str(b) for b in blobs_in])
+            # spatial_scale passed to the Python op is only used in
+            # convert_pkl_to_pb
+            self.net.Python(
+                GenerateProposalsOp(anchors, spatial_scale, self.train).forward
+            )(blobs_in, blobs_out, name=name, spatial_scale=spatial_scale)
+
         return blobs_out
-
-
 
     def GenerateProposalLabels(self, blobs_in):
         """Op for generating training labels for RPN proposals. This is used
@@ -236,133 +255,6 @@ class DetectionModelHelper(cnn.CNNModelHelper):
 
         return outputs
 
-    def CollectAndDistributeFpnClusterProposals(self):
-        """Merge RPN proposals generated at multiple FPN levels and then
-        distribute those proposals to their appropriate FPN levels. An anchor
-        at one FPN level may predict an RoI that will map to another level,
-        hence the need to redistribute the proposals.
-
-        This function assumes standard blob names for input and output blobs.
-
-        Input blobs: [rpn_rois_fpn<min>, ..., rpn_rois_fpn<max>,
-                      rpn_roi_probs_fpn<min>, ..., rpn_roi_probs_fpn<max>]
-          - rpn_rois_fpn<i> are the RPN proposals for FPN level i; see rpn_rois
-            documentation from GenerateProposals.
-          - rpn_roi_probs_fpn<i> are the RPN objectness probabilities for FPN
-            level i; see rpn_roi_probs documentation from GenerateProposals.
-
-        If used during training, then the input blobs will also include:
-          [roidb, im_info] (see GenerateProposalLabels).
-
-        Output blobs: [rois_fpn<min>, ..., rois_rpn<max>, rois,
-                       rois_idx_restore]
-          - rois_fpn<i> are the RPN proposals for FPN level i
-          - rois_idx_restore is a permutation on the concatenation of all
-            rois_fpn<i>, i=min...max, such that when applied the RPN RoIs are
-            restored to their original order in the input blobs.
-
-        If used during training, then the output blobs will also include:
-          [labels, bbox_targets, bbox_inside_weights, bbox_outside_weights].
-        """
-
-
-        # Prepare input blobs
-        k_max = cfg.FPN.RPN_MAX_LEVEL
-        k_min = cfg.FPN.RPN_MIN_LEVEL
-
-        # Prepare input blobs
-        rois_names = ['rpn_rois_fpn' + str(l) for l in range(k_min, k_max + 1)]
-        score_names = [
-            'rpn_roi_probs_fpn' + str(l) for l in range(k_min, k_max + 1)
-        ]
-        blobs_in = rois_names + score_names
-        if self.train:
-            blobs_in += ['roidb', 'im_info']
-        blobs_in = [core.ScopedBlobReference(b) for b in blobs_in]
-        name = 'CollectAndDistributeFpnClusterProposalsOp:' + ','.join(
-            [str(b) for b in blobs_in]
-        )
-
-        # Prepare output blobs
-        blobs_out = cluster_rcnn_roi_data.get_cluster_rcnn_blob_names(
-            is_training=self.train
-        )
-        blobs_out = [core.ScopedBlobReference(b) for b in blobs_out]
-
-        outputs = self.net.Python(
-            CollectAndDistributeFpnClusterProposalsOp(self.train).forward
-        )(blobs_in, blobs_out, name=name)
-
-        return outputs
-
-    def DecodeBBoxes(self, blobs_in, blobs_out, bbox_reg_weights):
-        """Op for decoding bboxes. Only support class-agnostic bbox regression.
-        by Zhaowei Cai for Cascade R-CNN
-
-        blobs_in:
-          - 'bbox_pred_<j>': 2D tensor of shape (R, 4 * 2) of predicted deltas
-            for transformation previous boxes into next boxes, at stage j.
-          - 'rois_<j>': 2D tensor of shape (R, 5), for proposals where the
-            five columns encode [batch ind, x1, y1, x2, y2], at stage j.
-
-        If used during training, then the input blobs will also include:
-          [mapped_gt_boxes_<j>], which is used to remove redundant ground truth.
-
-        blobs_out:
-          - 'proposals_<j+1>': 2D tensor of shape (R, 5), for proposals where the
-            five columns encode [batch ind, x1, y1, x2, y2].
-        """
-        name = 'DecodeBBoxesOp:' + ','.join([str(b) for b in blobs_in])
-        self.net.Python(DecodeBBoxesOp(bbox_reg_weights).forward)(
-            blobs_in, blobs_out, name=name
-        )
-        return blobs_out
-
-    def DistributeCascadeProposals(self, stage):
-        """Distribute proposals to their appropriate FPN levels.
-        by Zhaowei Cai for Cascade R-CNN
-
-        Input blobs:
-          - proposals_<j> are the decoded proposals from stage j; see
-            documentation from DecodeBBoxes.
-
-        If used during training, then the input blobs will also include:
-          [roidb, im_info] (see GenerateProposalLabels).
-
-        Output blobs: [rois_fpn<min>, ..., rois_rpn<max>, rois,
-                       rois_idx_restore]
-          - rois_fpn<i> are the RPN proposals for FPN level i
-          - rois_idx_restore is a permutation on the concatenation of all
-            rois_fpn<i>, i=min...max, such that when applied the RPN RoIs are
-            restored to their original order in the input blobs.
-
-        If used during training, then the output blobs will also include:
-          [labels, bbox_targets, bbox_inside_weights, bbox_outside_weights,
-          mapped_gt_boxes].
-        """
-        stage_name = '_{}'.format(stage)
-
-        # Prepare input blobs
-        blobs_in = ['proposals' + stage_name]
-        if self.train:
-            blobs_in += ['roidb', 'im_info']
-        blobs_in = [core.ScopedBlobReference(b) for b in blobs_in]
-        name = 'DistributeCascadeProposalsOp:' + ','.join(
-            [str(b) for b in blobs_in]
-        )
-
-        # Prepare output blobs
-        blobs_out = cascade_rcnn_roi_data.get_cascade_rcnn_blob_names(
-            stage, is_training=self.train
-        )
-        blobs_out = [core.ScopedBlobReference(b) for b in blobs_out]
-
-        outputs = self.net.Python(
-            DistributeCascadeProposalsOp(self.train, stage).forward
-        )(blobs_in, blobs_out, name=name)
-
-        return outputs
-
     def DropoutIfTraining(self, blob_in, dropout_rate):
         """Add dropout to blob_in if the model is in training mode and
         dropout_rate is > 0."""
@@ -378,71 +270,6 @@ class DetectionModelHelper(cnn.CNNModelHelper):
         blobs_in,
         blob_out,
         blob_rois='rois',
-        method='RoIPoolF',
-        resolution=7,
-        spatial_scale=1. / 16.,
-        sampling_ratio=0
-    ):
-        """Add the specified RoI pooling method. The sampling_ratio argument
-        is supported for some, but not all, RoI transform methods.
-
-        RoIFeatureTransform abstracts away:
-          - Use of FPN or not
-          - Specifics of the transform method
-        """
-        assert method in {'RoIPoolF', 'RoIAlign'}, \
-            'Unknown pooling method: {}'.format(method)
-        has_argmax = (method == 'RoIPoolF')
-        if isinstance(blobs_in, list):
-            # FPN case: add RoIFeatureTransform to each FPN level
-            k_max = cfg.FPN.ROI_MAX_LEVEL  # coarsest level of pyramid
-            k_min = cfg.FPN.ROI_MIN_LEVEL  # finest level of pyramid
-            assert len(blobs_in) == k_max - k_min + 1
-            bl_out_list = []
-            for lvl in range(k_min, k_max + 1):
-                bl_in = blobs_in[k_max - lvl]  # blobs_in is in reversed order
-                sc = spatial_scale[k_max - lvl]  # in reversed order
-                bl_rois = blob_rois + '_fpn' + str(lvl)
-                bl_out = blob_out + '_fpn' + str(lvl)
-                bl_out_list.append(bl_out)
-                bl_argmax = ['_argmax_' + bl_out] if has_argmax else []
-                self.net.__getattr__(method)(
-                    [bl_in, bl_rois], [bl_out] + bl_argmax,
-                    pooled_w=resolution,
-                    pooled_h=resolution,
-                    spatial_scale=sc,
-                    sampling_ratio=sampling_ratio
-                )
-            # The pooled features from all levels are concatenated along the
-            # batch dimension into a single 4D tensor.
-            xform_shuffled, _ = self.net.Concat(
-                bl_out_list, [blob_out + '_shuffled', '_concat_' + blob_out],
-                axis=0
-            )
-            # Unshuffle to match rois from dataloader
-            restore_bl = blob_rois + '_idx_restore_int32'
-            xform_out = self.net.BatchPermutation(
-                [xform_shuffled, restore_bl], blob_out
-            )
-        else:
-            # Single feature level
-            bl_argmax = ['_argmax_' + blob_out] if has_argmax else []
-            # sampling_ratio is ignored for RoIPoolF
-            xform_out = self.net.__getattr__(method)(
-                [blobs_in, blob_rois], [blob_out] + bl_argmax,
-                pooled_w=resolution,
-                pooled_h=resolution,
-                spatial_scale=spatial_scale,
-                sampling_ratio=sampling_ratio
-            )
-        # Only return the first blob (the transformed features)
-        return xform_out[0] if isinstance(xform_out, tuple) else xform_out
-
-    def ClusterRoIFeatureTransform(
-        self,
-        blobs_in,
-        blob_out,
-        blob_rois='cluster_rois',
         method='RoIPoolF',
         resolution=7,
         spatial_scale=1. / 16.,
@@ -536,38 +363,6 @@ class DetectionModelHelper(cnn.CNNModelHelper):
 
         return self.net.Conv(
             blobs_in, blob_out, kernel=kernel, order=self.order, **kwargs
-        )
-
-    def FCShared(
-        self,
-        blob_in,
-        blob_out,
-        weight=None,
-        bias=None,
-        **kwargs
-    ):
-        """Add fc op that shares weights and/or biases with another fc op.
-        """
-        use_bias = (
-            False if ('no_bias' in kwargs and kwargs['no_bias']) else True
-        )
-
-        if self.use_cudnn:
-            kwargs['engine'] = 'CUDNN'
-            kwargs['exhaustive_search'] = self.cudnn_exhaustive_search
-            if self.ws_nbytes_limit:
-                kwargs['ws_nbytes_limit'] = self.ws_nbytes_limit
-
-        if use_bias:
-            blobs_in = [blob_in, weight, bias]
-        else:
-            blobs_in = [blob_in, weight]
-
-        if 'no_bias' in kwargs:
-            del kwargs['no_bias']
-
-        return self.net.FC(
-            blobs_in, blob_out, order=self.order, **kwargs
         )
 
     def BilinearInterpolation(
@@ -688,45 +483,6 @@ class DetectionModelHelper(cnn.CNNModelHelper):
         self.gn_params.append(self.params[-2])  # add gn's scale to list
         return blob_out
 
-    def SpatialGNShared(
-        self,
-        blob_in,
-        blob_out,
-        group_gn,
-        scale=None,
-        bias=None,
-        **kwargs
-    ):
-        """Add gn op that shares weights and/or biases with another gn op.
-        """
-        use_bias = (
-            False if ('no_bias' in kwargs and kwargs['no_bias']) else True
-        )
-
-        if self.use_cudnn:
-            kwargs['engine'] = 'CUDNN'
-            kwargs['exhaustive_search'] = self.cudnn_exhaustive_search
-            if self.ws_nbytes_limit:
-                kwargs['ws_nbytes_limit'] = self.ws_nbytes_limit
-
-        if use_bias:
-            blobs_in = [blob_in, scale, bias]
-        else:
-            blobs_in = [blob_in, scale]
-
-        blobs_out = [blob_out, blob_out + "_mean", blob_out + "_std"]
-
-        if 'no_bias' in kwargs:
-            del kwargs['no_bias']
-
-        kwargs['group'] = group_gn
-        kwargs['epsilon'] = cfg.GROUP_NORM.EPSILON
-
-        blob_outputs = self.net.GroupNorm(
-            blobs_in, blobs_out, **kwargs
-        )
-        return blob_outputs[0]
-
     def DisableCudnn(self):
         self.prev_use_cudnn = self.use_cudnn
         self.use_cudnn = False
@@ -806,29 +562,6 @@ class DetectionModelHelper(cnn.CNNModelHelper):
         if not isinstance(metrics, list):
             metrics = [metrics]
         self.metrics = list(set(self.metrics + metrics))
-
-    def AddBBoxAccuracy(self, blobs_in, blobs_out, bbox_reg_weights):
-        """Op for bbox IoU accuracy, by Zhaowei Cai for Cascade R-CNN.
-
-        blobs_in: ['bbox_pred', 'rois', 'labels', 'mapped_gt_boxes']
-          - 'bbox_pred': 2D tensor of shape (R, 4 * C), predicted bbox deltas
-            for transformation previous boxes into next boxes.
-          - 'rois': 2D tensor of shape (R, 5), proposals where the
-            five columns encode [batch ind, x1, y1, x2, y2].
-          - 'labels': 2D tensor of shape (R, 1), classification labels to
-            identify fg rois.
-          - 'mapped_gt_boxes': 2D tensor of shape (R, 5), the corresponding gt
-            boxes where the five columns encode [x1, y1, x2, y2, IoU].
-
-        blobs_out:
-          - 'bbox_iou': mean IoU after bbox prediction.
-          - 'bbox_iou_pre': mean IoU before bbox prediction.
-        """
-        name = 'BBoxAccuracyOp:' + ','.join([str(b) for b in blobs_in])
-        self.net.Python(BBoxAccuracyOp(bbox_reg_weights).forward)(
-            blobs_in, blobs_out, name=name
-        )
-        return blobs_out
 
 
 def _get_lr_change_ratio(cur_lr, new_lr):

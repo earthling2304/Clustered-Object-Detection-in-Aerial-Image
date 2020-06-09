@@ -44,13 +44,13 @@ from __future__ import unicode_literals
 
 from ast import literal_eval
 from future.utils import iteritems
-from past.builtins import basestring
 import copy
+import io
 import logging
 import numpy as np
 import os
 import os.path as osp
-import yaml
+import six
 
 from detectron.utils.collections import AttrDict
 from detectron.utils.io import cache_url
@@ -62,7 +62,6 @@ __C = AttrDict()
 #   from detectron.core.config import cfg
 cfg = __C
 
-
 # Random note: avoid using '.ON' as a config key since yaml converts it to True;
 # prefer 'ENABLED' instead
 
@@ -72,7 +71,7 @@ cfg = __C
 __C.TRAIN = AttrDict()
 
 # Initialize network with weights from this .pkl file
-__C.TRAIN.WEIGHTS = b''
+__C.TRAIN.WEIGHTS = ''
 
 # Datasets to train on
 # Available dataset list: detectron.datasets.dataset_catalog.datasets()
@@ -117,9 +116,9 @@ __C.TRAIN.USE_FLIPPED = True
 __C.TRAIN.BBOX_THRESH = 0.5
 
 # Snapshot (model checkpoint) period
-# Divide by NUM_GPUS to determine actual period (e.g., 20000/8 => 2500 iters)
+# Divide by NUM_GPUS to determine actual period (e.g., 80000/8 => 10000 iters)
 # to allow for linear training schedule scaling
-__C.TRAIN.SNAPSHOT_ITERS = 20000
+__C.TRAIN.SNAPSHOT_ITERS = 80000
 
 # Train using these proposals
 # During training, all proposals specified in the file are used (no limit is
@@ -137,6 +136,9 @@ __C.TRAIN.ASPECT_GROUPING = True
 # ---------------------------------------------------------------------------- #
 # RPN training options
 # ---------------------------------------------------------------------------- #
+
+# Run GenerateProposals on GPU if set to True
+__C.TRAIN.GENERATE_PROPOSALS_ON_GPU = False
 
 # Minimum overlap required between an anchor and ground-truth box for the
 # (anchor, gt box) pair to be a positive example (IOU >= thresh ==> positive RPN
@@ -219,7 +221,7 @@ __C.DATA_LOADER.BLOBS_QUEUE_CAPACITY = 8
 __C.TEST = AttrDict()
 
 # Initialize network with weights from this .pkl file
-__C.TEST.WEIGHTS = b''
+__C.TEST.WEIGHTS = ''
 
 # Datasets to test on
 # Available dataset list: detectron.datasets.dataset_catalog.datasets()
@@ -241,6 +243,9 @@ __C.TEST.BBOX_REG = True
 
 # Test using these proposal files (must correspond with TEST.DATASETS)
 __C.TEST.PROPOSAL_FILES = ()
+
+# Run GenerateProposals on GPU if set to True
+__C.TEST.GENERATE_PROPOSALS_ON_GPU = False
 
 # Limit on the number of proposals per image used during inference
 __C.TEST.PROPOSAL_LIMIT = 2000
@@ -285,6 +290,11 @@ __C.TEST.FORCE_JSON_DATASET_EVAL = False
 # Not set for 1-stage models and 2-stage models with RPN subnetwork enabled
 __C.TEST.PRECOMPUTED_PROPOSALS = True
 
+# Evaluate proposals in class-specific Average Recall (AR).
+# It means that one first computes AR within each category and then averages
+# over the categories. It is not biased towards the AR of frequent categories
+# compared with class-agnostic AR.
+__C.TEST.CLASS_SPECIFIC_AR = False
 
 # ---------------------------------------------------------------------------- #
 # Test-time augmentations for bounding box detection
@@ -297,11 +307,11 @@ __C.TEST.BBOX_AUG.ENABLED = False
 
 # Heuristic used to combine predicted box scores
 #   Valid options: ('ID', 'AVG', 'UNION')
-__C.TEST.BBOX_AUG.SCORE_HEUR = b'UNION'
+__C.TEST.BBOX_AUG.SCORE_HEUR = 'UNION'
 
 # Heuristic used to combine predicted box coordinates
 #   Valid options: ('ID', 'AVG', 'UNION')
-__C.TEST.BBOX_AUG.COORD_HEUR = b'UNION'
+__C.TEST.BBOX_AUG.COORD_HEUR = 'UNION'
 
 # Horizontal flip at the original scale (id transform)
 __C.TEST.BBOX_AUG.H_FLIP = False
@@ -338,7 +348,7 @@ __C.TEST.MASK_AUG.ENABLED = False
 # Heuristic used to combine mask predictions
 # SOFT prefix indicates that the computation is performed on soft masks
 #   Valid options: ('SOFT_AVG', 'SOFT_MAX', 'LOGIT_AVG')
-__C.TEST.MASK_AUG.HEUR = b'SOFT_AVG'
+__C.TEST.MASK_AUG.HEUR = 'SOFT_AVG'
 
 # Horizontal flip at the original scale (id transform)
 __C.TEST.MASK_AUG.H_FLIP = False
@@ -373,7 +383,7 @@ __C.TEST.KPS_AUG.ENABLED = False
 
 # Heuristic used to combine keypoint predictions
 #   Valid options: ('HM_AVG', 'HM_MAX')
-__C.TEST.KPS_AUG.HEUR = b'HM_AVG'
+__C.TEST.KPS_AUG.HEUR = 'HM_AVG'
 
 # Horizontal flip at the original scale (id transform)
 __C.TEST.KPS_AUG.H_FLIP = False
@@ -405,7 +415,7 @@ __C.TEST.SOFT_NMS = AttrDict()
 # Use soft NMS instead of standard NMS if set to True
 __C.TEST.SOFT_NMS.ENABLED = False
 # See soft NMS paper for definition of these options
-__C.TEST.SOFT_NMS.METHOD = b'linear'
+__C.TEST.SOFT_NMS.METHOD = 'linear'
 __C.TEST.SOFT_NMS.SIGMA = 0.5
 # For the soft NMS overlap threshold, we simply use TEST.NMS
 
@@ -423,7 +433,7 @@ __C.TEST.BBOX_VOTE.VOTE_TH = 0.8
 
 # The method used to combine scores when doing bounding box voting
 # Valid options include ('ID', 'AVG', 'IOU_AVG', 'GENERALIZED_AVG', 'QUASI_SUM')
-__C.TEST.BBOX_VOTE.SCORING_METHOD = b'ID'
+__C.TEST.BBOX_VOTE.SCORING_METHOD = 'ID'
 
 # Hyperparameter used by the scoring method (it has different meanings for
 # different methods)
@@ -438,13 +448,13 @@ __C.MODEL = AttrDict()
 # The type of model to use
 # The string must match a function in the modeling.model_builder module
 # (e.g., 'generalized_rcnn', 'mask_rcnn', ...)
-__C.MODEL.TYPE = b''
+__C.MODEL.TYPE = ''
 
 # The backbone conv body to use
 # The string must match a function that is imported in modeling.model_builder
 # (e.g., 'FPN.add_fpn_ResNet101_conv5_body' to specify a ResNet-101-FPN
 # backbone)
-__C.MODEL.CONV_BODY = b''
+__C.MODEL.CONV_BODY = ''
 
 # Number of classes in the dataset; must be set
 # E.g., 81 for COCO (80 foreground + 1 background)
@@ -470,9 +480,6 @@ __C.MODEL.BBOX_REG_WEIGHTS = (10., 10., 5., 5.)
 #    finally leads to a single network).
 __C.MODEL.FASTER_RCNN = False
 
-# Indicates the model uses Cascade R-CNN
-__C.MODEL.CASCADE_ON = False
-
 # Indicates the model makes instance mask predictions (as in Mask R-CNN)
 __C.MODEL.MASK_ON = False
 
@@ -486,10 +493,7 @@ __C.MODEL.RPN_ONLY = False
 
 # Caffe2 net execution type
 # Use 'prof_dag' to get profiling statistics
-__C.MODEL.EXECUTION_TYPE = b'dag'
-
-# Cluster Detection
-__C.MODEL.Cluster_RCNN_ON=False
+__C.MODEL.EXECUTION_TYPE = 'dag'
 
 
 # ---------------------------------------------------------------------------- #
@@ -573,7 +577,7 @@ __C.SOLVER.BASE_LR = 0.001
 
 # Schedule type (see functions in utils.lr_policy for options)
 # E.g., 'step', 'steps_with_decay', ...
-__C.SOLVER.LR_POLICY = b'step'
+__C.SOLVER.LR_POLICY = 'step'
 
 # Some LR Policies (by example):
 # 'step'
@@ -588,9 +592,15 @@ __C.SOLVER.LR_POLICY = b'step'
 #   SOLVER.STEPS = [0, 60000, 80000]
 #   SOLVER.LRS = [0.02, 0.002, 0.0002]
 #   lr = LRS[current_step]
+# 'cosine_decay'
+#   lr = SOLVER.BASE_LR * (cos(PI * cur_iter / SOLVER.MAX_ITER) * 0.5 + 0.5)
+# 'exp_decay'
+#   lr smoothly decays from SOLVER.BASE_LR to SOLVER.GAMMA * SOLVER.BASE_LR
+#   lr = SOLVER.BASE_LR * exp(np.log(SOLVER.GAMMA) * cur_iter / SOLVER.MAX_ITER)
 
 # Hyperparameter used by the specified policy
 # For 'step', the current LR is multiplied by SOLVER.GAMMA at each step
+# For 'exp_decay', SOLVER.GAMMA is the ratio between the final and initial LR.
 __C.SOLVER.GAMMA = 0.1
 
 # Uniform step size for 'steps' policy
@@ -644,7 +654,7 @@ __C.FAST_RCNN = AttrDict()
 # The type of RoI head to use for bounding box classification and regression
 # The string must match a function this is imported in modeling.model_builder
 # (e.g., 'head_builder.add_roi_2mlp_head' to specify a two hidden layer MLP)
-__C.FAST_RCNN.ROI_BOX_HEAD = b''
+__C.FAST_RCNN.ROI_BOX_HEAD = ''
 
 # Hidden layer dimension when using an MLP for the RoI box head
 __C.FAST_RCNN.MLP_HEAD_DIM = 1024
@@ -656,7 +666,7 @@ __C.FAST_RCNN.NUM_STACKED_CONVS = 4
 
 # RoI transformation function (e.g., RoIPool or RoIAlign)
 # (RoIPoolF is the same as RoIPool; ignore the trailing 'F')
-__C.FAST_RCNN.ROI_XFORM_METHOD = b'RoIPoolF'
+__C.FAST_RCNN.ROI_XFORM_METHOD = 'RoIPoolF'
 
 # Number of grid sampling points in RoIAlign (usually use 2)
 # Only applies to RoIAlign
@@ -666,74 +676,6 @@ __C.FAST_RCNN.ROI_XFORM_SAMPLING_RATIO = 0
 # Note: some models may have constraints on what they can use, e.g. they use
 # pretrained FC layers like in VGG16, and will ignore this option
 __C.FAST_RCNN.ROI_XFORM_RESOLUTION = 14
-
-
-# ---------------------------------------------------------------------------- #
-# Cluster R-CNN options
-# ---------------------------------------------------------------------------- #
-__C.Cluster_RCNN = AttrDict()
-
-# The type of RoI head to use for bounding box classification and regression
-# The string must match a function this is imported in modeling.model_builder
-# (e.g., 'head_builder.add_roi_2mlp_head' to specify a two hidden layer MLP)
-__C.Cluster_RCNN.ROI_BOX_HEAD = b''
-
-# Hidden layer dimension when using an MLP for the RoI box head
-__C.Cluster_RCNN.MLP_HEAD_DIM = 1024
-
-# Hidden Conv layer dimension when using Convs for the RoI box head
-__C.Cluster_RCNN.CONV_HEAD_DIM = 256
-# Number of stacked Conv layers in the RoI box head
-__C.Cluster_RCNN.NUM_STACKED_CONVS = 4
-
-# RoI transformation function (e.g., RoIPool or RoIAlign)
-# (RoIPoolF is the same as RoIPool; ignore the trailing 'F')
-__C.Cluster_RCNN.ROI_XFORM_METHOD = b'RoIPoolF'
-
-# Number of grid sampling points in RoIAlign (usually use 2)
-# Only applies to RoIAlign
-__C.Cluster_RCNN.ROI_XFORM_SAMPLING_RATIO = 0
-
-# RoI transform output resolution
-# Note: some models may have constraints on what they can use, e.g. they use
-# pretrained FC layers like in VGG16, and will ignore this option
-__C.Cluster_RCNN.ROI_XFORM_RESOLUTION = 14
-
-
-# ---------------------------------------------------------------------------- #
-# Cascade R-CNN options
-# ---------------------------------------------------------------------------- #
-__C.CASCADE_RCNN = AttrDict()
-
-# The type of RoI head to use for bounding box classification and regression
-# The string must match a function this is imported in modeling.model_builder
-# (e.g., 'head_builder.add_roi_2mlp_head' to specify a two hidden layer MLP)
-__C.CASCADE_RCNN.ROI_BOX_HEAD = b''
-__C.CASCADE_RCNN.NUM_STAGE = 3
-__C.CASCADE_RCNN.TEST_STAGE = 0
-__C.CASCADE_RCNN.TEST_ENSEMBLE = True
-
-# Overlap threshold for an RoI to be considered foreground (if >= FG_THRESH)
-__C.CASCADE_RCNN.FG_THRESHS = (0.5, 0.6, 0.7)
-
-# Overlap threshold for an RoI to be considered background (class = 0 if
-# overlap in [LO, HI))
-__C.CASCADE_RCNN.BG_THRESHS_HI = (0.5, 0.6, 0.7)
-__C.CASCADE_RCNN.BG_THRESHS_LO = (0.0, 0.0, 0.0)
-
-# Default weights on (dx, dy, dw, dh) for normalizing bbox regression targets
-# These are empirically chosen to approximately lead to unit variance targets
-__C.CASCADE_RCNN.BBOX_REG_WEIGHTS = ((10., 10., 5., 5.), (20., 20., 10., 10.),
-                                     (30., 30., 15., 15.))
-
-# scale loss for cascade stages
-__C.CASCADE_RCNN.SCALE_LOSS = True
-
-# scale loss for cascade stages
-__C.CASCADE_RCNN.SCALE_GRAD = False
-
-# weights for cascade stages
-__C.CASCADE_RCNN.STAGE_WEIGHTS = (1.0, 0.5, 0.25)
 
 
 # ---------------------------------------------------------------------------- #
@@ -754,7 +696,6 @@ __C.RPN.STRIDE = 16
 
 # RPN anchor aspect ratios
 __C.RPN.ASPECT_RATIOS = (0.5, 1, 2)
-
 
 
 # ---------------------------------------------------------------------------- #
@@ -806,16 +747,6 @@ __C.FPN.EXTRA_CONV_LEVELS = False
 # Use GroupNorm in the FPN-specific layers (lateral, etc.)
 __C.FPN.USE_GN = False
 
-# Use FPN for Cluster RPN if True
-__C.FPN.MULTILEVEL_Cluster_RPN = False
-# Coarsest level of the FPN pyramid
-__C.FPN.Cluster_RPN_MAX_LEVEL = 6
-# Finest level of the FPN pyramid
-__C.FPN.Cluster_RPN_MIN_LEVEL = 2
-# FPN RPN anchor aspect ratios
-__C.FPN.Cluster_RPN_ASPECT_RATIOS = (0.5, 1, 2)
-__C.FPN.Cluster_RPN_ANCHOR_START_SIZE = 32
-
 
 # ---------------------------------------------------------------------------- #
 # Mask R-CNN options ("MRCNN" means Mask R-CNN)
@@ -825,13 +756,13 @@ __C.MRCNN = AttrDict()
 # The type of RoI head to use for instance mask prediction
 # The string must match a function this is imported in modeling.model_builder
 # (e.g., 'mask_rcnn_heads.ResNet_mask_rcnn_fcn_head_v1up4convs')
-__C.MRCNN.ROI_MASK_HEAD = b''
+__C.MRCNN.ROI_MASK_HEAD = ''
 
 # Resolution of mask predictions
 __C.MRCNN.RESOLUTION = 14
 
 # RoI transformation function and associated options
-__C.MRCNN.ROI_XFORM_METHOD = b'RoIAlign'
+__C.MRCNN.ROI_XFORM_METHOD = 'RoIAlign'
 
 # RoI transformation function (e.g., RoIPool or RoIAlign)
 __C.MRCNN.ROI_XFORM_RESOLUTION = 7
@@ -853,7 +784,7 @@ __C.MRCNN.UPSAMPLE_RATIO = 1
 __C.MRCNN.USE_FC_OUTPUT = False
 
 # Weight initialization method for the mask head and mask output layers
-__C.MRCNN.CONV_INIT = b'GaussianFill'
+__C.MRCNN.CONV_INIT = 'GaussianFill'
 
 # Use class specific mask predictions if True (otherwise use class agnostic mask
 # predictions)
@@ -865,9 +796,6 @@ __C.MRCNN.WEIGHT_LOSS_MASK = 1.0
 # Binarization threshold for converting soft masks to hard masks
 __C.MRCNN.THRESH_BINARIZE = 0.5
 
-# Working stage in Cascade R-CNN during training
-__C.MRCNN.AT_STAGE = 1
-
 
 # ---------------------------------------------------------------------------- #
 # Keypoint Mask R-CNN options ("KRCNN" = Mask R-CNN with Keypoint support)
@@ -877,7 +805,7 @@ __C.KRCNN = AttrDict()
 # The type of RoI head to use for instance keypoint prediction
 # The string must match a function this is imported in modeling.model_builder
 # (e.g., 'keypoint_rcnn_heads.add_roi_pose_head_v1convX')
-__C.KRCNN.ROI_KEYPOINTS_HEAD = b''
+__C.KRCNN.ROI_KEYPOINTS_HEAD = ''
 
 # Output size (and size loss is computed on), e.g., 56x56
 __C.KRCNN.HEATMAP_SIZE = -1
@@ -912,17 +840,17 @@ __C.KRCNN.CONV_HEAD_DIM = 256
 # Conv kernel size used in the keypoint head
 __C.KRCNN.CONV_HEAD_KERNEL = 3
 # Conv kernel weight filling function
-__C.KRCNN.CONV_INIT = b'GaussianFill'
+__C.KRCNN.CONV_INIT = 'GaussianFill'
 
 # Use NMS based on OKS if True
 __C.KRCNN.NMS_OKS = False
 
 # Source of keypoint confidence
 #   Valid options: ('bbox', 'logit', 'prob')
-__C.KRCNN.KEYPOINT_CONFIDENCE = b'bbox'
+__C.KRCNN.KEYPOINT_CONFIDENCE = 'bbox'
 
 # Standard ROI XFORM options (see FAST_RCNN or MRCNN options)
-__C.KRCNN.ROI_XFORM_METHOD = b'RoIAlign'
+__C.KRCNN.ROI_XFORM_METHOD = 'RoIAlign'
 __C.KRCNN.ROI_XFORM_RESOLUTION = 7
 __C.KRCNN.ROI_XFORM_SAMPLING_RATIO = 0
 
@@ -945,9 +873,6 @@ __C.KRCNN.LOSS_WEIGHT = 1.0
 # in the minibatch. See comments in modeling.model_builder.add_keypoint_losses
 # for detailed discussion.
 __C.KRCNN.NORMALIZE_BY_VISIBLE_KEYPOINTS = True
-
-# Working stage in Cascade R-CNN during training
-__C.KRCNN.AT_STAGE = 1
 
 
 # ---------------------------------------------------------------------------- #
@@ -975,11 +900,11 @@ __C.RESNETS.WIDTH_PER_GROUP = 64
 __C.RESNETS.STRIDE_1X1 = True
 
 # Residual transformation function
-__C.RESNETS.TRANS_FUNC = b'bottleneck_transformation'
+__C.RESNETS.TRANS_FUNC = 'bottleneck_transformation'
 # ResNet's stem function (conv1 and pool1)
-__C.RESNETS.STEM_FUNC = b'basic_bn_stem'
+__C.RESNETS.STEM_FUNC = 'basic_bn_stem'
 # ResNet's shortcut function
-__C.RESNETS.SHORTCUT_FUNC = b'basic_bn_shortcut'
+__C.RESNETS.SHORTCUT_FUNC = 'basic_bn_shortcut'
 
 # Apply dilation in stage "res5"
 __C.RESNETS.RES5_DILATION = 1
@@ -1037,10 +962,10 @@ __C.EPS = 1e-14
 __C.ROOT_DIR = os.getcwd()
 
 # Output basedir
-__C.OUTPUT_DIR = b'/tmp'
+__C.OUTPUT_DIR = '/tmp'
 
 # Name (or path to) the matlab executable
-__C.MATLAB = b'matlab'
+__C.MATLAB = 'matlab'
 
 # Reduce memory usage with memonger gradient blob sharing
 __C.MEMONGER = True
@@ -1067,11 +992,11 @@ __C.EXPECTED_RESULTS_ATOL = 0.005
 # that the actual value is within mean +/- SIGMA_TOL * std
 __C.EXPECTED_RESULTS_SIGMA_TOL = 4
 # Set to send email in case of an EXPECTED_RESULTS failure
-__C.EXPECTED_RESULTS_EMAIL = b''
+__C.EXPECTED_RESULTS_EMAIL = ''
 
 # Models and proposals referred to by URL are downloaded to a local cache
 # specified by DOWNLOAD_CACHE
-__C.DOWNLOAD_CACHE = b'/tmp/detectron-download-cache'
+__C.DOWNLOAD_CACHE = '/tmp/detectron-download-cache'
 
 
 # ---------------------------------------------------------------------------- #
@@ -1191,9 +1116,9 @@ def cache_cfg_urls():
 
 def get_output_dir(datasets, training=True):
     """Get the output directory determined by the current global config."""
-    assert isinstance(datasets, (tuple, list, basestring)), \
+    assert isinstance(datasets, tuple([tuple, list] + list(six.string_types))), \
         'datasets argument must be of type tuple, list or string'
-    is_string = isinstance(datasets, basestring)
+    is_string = isinstance(datasets, six.string_types)
     dataset_name = datasets if is_string else ':'.join(datasets)
     tag = 'train' if training else 'test'
     # <output-dir>/<train|test>/<dataset-name>/<model-type>/
@@ -1205,16 +1130,19 @@ def get_output_dir(datasets, training=True):
 
 def load_cfg(cfg_to_load):
     """Wrapper around yaml.load used for maintaining backward compatibility"""
-    assert isinstance(cfg_to_load, (file, basestring)), \
-        'Expected {} or {} got {}'.format(file, basestring, type(cfg_to_load))
-    if isinstance(cfg_to_load, file):
+    file_types = [file, io.IOBase] if six.PY2 else [io.IOBase]  # noqa false positive
+    expected_types = tuple(file_types + list(six.string_types))
+    assert isinstance(cfg_to_load, expected_types), \
+        'Expected one of {}, got {}'.format(expected_types, type(cfg_to_load))
+    if isinstance(cfg_to_load, tuple(file_types)):
         cfg_to_load = ''.join(cfg_to_load.readlines())
-    if isinstance(cfg_to_load, basestring):
-        for old_module, new_module in iteritems(_RENAMED_MODULES):
-            # yaml object encoding: !!python/object/new:<module>.<object>
-            old_module, new_module = 'new:' + old_module, 'new:' + new_module
-            cfg_to_load = cfg_to_load.replace(old_module, new_module)
-    return yaml.load(cfg_to_load)
+    for old_module, new_module in iteritems(_RENAMED_MODULES):
+        # yaml object encoding: !!python/object/new:<module>.<object>
+        old_module, new_module = 'new:' + old_module, 'new:' + new_module
+        cfg_to_load = cfg_to_load.replace(old_module, new_module)
+    # Import inline due to a circular dependency between env.py and config.py
+    import detectron.utils.env as envu
+    return envu.yaml_load(cfg_to_load)
 
 
 def merge_cfg_from_file(cfg_filename):
@@ -1323,7 +1251,7 @@ def _decode_cfg_value(v):
     if isinstance(v, dict):
         return AttrDict(v)
     # All remaining processing is only applied to strings
-    if not isinstance(v, basestring):
+    if not isinstance(v, six.string_types):
         return v
     # Try to interpret `v` as a:
     #   string, number, tuple, list, dict, boolean, or None
@@ -1361,7 +1289,7 @@ def _check_and_coerce_cfg_value_type(value_a, value_b, key, full_key):
     # Exceptions: numpy arrays, strings, tuple<->list
     if isinstance(value_b, np.ndarray):
         value_a = np.array(value_a, dtype=value_b.dtype)
-    elif isinstance(value_b, basestring):
+    elif isinstance(value_b, six.string_types):
         value_a = str(value_a)
     elif isinstance(value_a, tuple) and isinstance(value_b, list):
         value_a = list(value_a)

@@ -27,7 +27,6 @@ import detectron.modeling.FPN as fpn
 import detectron.roi_data.fast_rcnn as fast_rcnn_roi_data
 import detectron.utils.blob as blob_utils
 
-# import pydevd
 
 class CollectAndDistributeFpnRpnProposalsOp(object):
     def __init__(self, train):
@@ -42,8 +41,6 @@ class CollectAndDistributeFpnRpnProposalsOp(object):
         #  rpn_roi_probs_fpn2, ..., rpn_roi_probs_fpn6]
         # If training with Faster R-CNN, then inputs will additionally include
         #  + [roidb, im_info]
-        # pydevd.settrace(suspend=False, trace_only_current_thread=True)
-
         rois = collect(inputs, self._train)
         if self._train:
             # During training we reuse the data loader code. We populate roidb
