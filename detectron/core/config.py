@@ -52,6 +52,10 @@ import os
 import os.path as osp
 import six
 
+from past.builtins import basestring
+import yaml
+
+
 from detectron.utils.collections import AttrDict
 from detectron.utils.io import cache_url
 
