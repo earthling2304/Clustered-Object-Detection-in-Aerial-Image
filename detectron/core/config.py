@@ -1195,9 +1195,9 @@ def cache_cfg_urls():
 
 def get_output_dir(datasets, training=True):
     """Get the output directory determined by the current global config."""
-    assert isinstance(datasets, (tuple, list, basestring)), \
+    assert isinstance(datasets, tuple([tuple, list] + list(six.string_types))), \
         'datasets argument must be of type tuple, list or string'
-    is_string = isinstance(datasets, basestring)
+    is_string = isinstance(datasets, six.string_types)
     dataset_name = datasets if is_string else ':'.join(datasets)
     tag = 'train' if training else 'test'
     # <output-dir>/<train|test>/<dataset-name>/<model-type>/
@@ -1209,16 +1209,19 @@ def get_output_dir(datasets, training=True):
 
 def load_cfg(cfg_to_load):
     """Wrapper around yaml.load used for maintaining backward compatibility"""
-    assert isinstance(cfg_to_load, (file, basestring)), \
-        'Expected {} or {} got {}'.format(file, basestring, type(cfg_to_load))
-    if isinstance(cfg_to_load, file):
+    file_types = [file, io.IOBase] if six.PY2 else [io.IOBase]  # noqa false positive
+    expected_types = tuple(file_types + list(six.string_types))
+    assert isinstance(cfg_to_load, expected_types), \
+        'Expected one of {}, got {}'.format(expected_types, type(cfg_to_load))
+    if isinstance(cfg_to_load, tuple(file_types)):
         cfg_to_load = ''.join(cfg_to_load.readlines())
-    if isinstance(cfg_to_load, basestring):
-        for old_module, new_module in iteritems(_RENAMED_MODULES):
-            # yaml object encoding: !!python/object/new:<module>.<object>
-            old_module, new_module = 'new:' + old_module, 'new:' + new_module
-            cfg_to_load = cfg_to_load.replace(old_module, new_module)
-    return yaml.load(cfg_to_load)
+    for old_module, new_module in iteritems(_RENAMED_MODULES):
+        # yaml object encoding: !!python/object/new:<module>.<object>
+        old_module, new_module = 'new:' + old_module, 'new:' + new_module
+        cfg_to_load = cfg_to_load.replace(old_module, new_module)
+    # Import inline due to a circular dependency between env.py and config.py
+    import detectron.utils.env as envu
+    return envu.yaml_load(cfg_to_load)
 
 
 def merge_cfg_from_file(cfg_filename):
