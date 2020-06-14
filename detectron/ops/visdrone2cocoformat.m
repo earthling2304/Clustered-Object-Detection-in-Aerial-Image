@@ -5,10 +5,10 @@ addpath('./meanshift');
 
 cls_name={'pedestrian', 'people', 'bicycle', 'car', 'van','truck', 'tricycle', 'awning-tricycle', 'bus', 'motor','cluster'};
 
-gt_path='/media/fanyang/C/data/visdrone/VisDrone2018-DET-val/cluster_crop_gt_CPNet';
+gt_path='$VISDRONE/VisDrone2018-DET-val/cluster_crop_gt_CPNet';
 gt_list=dir(fullfile(gt_path,'*txt'));
-im_path='/media/fanyang/C/data/visdrone/VisDrone2018-DET-val/cluster_crop_image_CPNet';
-output_path='/media/fanyang/C/data/visdrone/VisDrone2018-DET-val/coco_format_annotations';
+im_path='$VISDRONE/VisDrone2018-DET-val/cluster_crop_image_CPNet';
+output_path='$VISDRONE/VisDrone2018-DET-val/coco_format_annotations';
 output_file=fullfile(output_path,'cluster_CPNet.json');
 cls_num=length(cls_name);
 if ~exist(output_path)

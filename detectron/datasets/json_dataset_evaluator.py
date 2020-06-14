@@ -24,7 +24,6 @@ import json
 import logging
 import numpy as np
 import os
-import six
 import uuid
 
 from pycocotools.cocoeval import COCOeval
@@ -87,16 +86,6 @@ def _write_coco_segms_results_file(
         'Writing segmentation results json to: {}'.format(
             os.path.abspath(res_file)))
     with open(res_file, 'w') as fid:
-        # "counts" is an array encoded by mask_util as a byte-stream. Python3's
-        # json writer which /always produces strings/ cannot serialize a bytestream
-        # unless you decode it. Thankfully, utf-8 works out (which is also what
-        # the pycocotools/_mask.pyx does.
-        if six.PY3:
-            for r in results:
-                rle = r['segmentation']
-                if 'counts' in rle:
-                    rle['counts'] = rle['counts'].decode("utf8")
-
         json.dump(results, fid)
 
 
@@ -249,11 +238,102 @@ def _log_detection_eval_metrics(json_dataset, coco_eval):
         ap = np.mean(precision[precision > -1])
         logger.info('{:.1f}'.format(100 * ap))
     logger.info('~~~~ Summary metrics ~~~~')
-    coco_eval.summarize()
+    #coco_eval.summarize()
+    _coco_summarize(coco_eval)
+
+
+def _coco_summarize(evaluator):
+    """
+    Compute and display summary metrics for evaluation results.
+    Note this functin can *only* be applied on the default parameter setting
+    """
+    def _summarize( ap=1, iouThr=None, areaRng='all', maxDets=100 ):
+        p = evaluator.params
+        iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | maxDets={:>3d} ] = {:0.3f}'
+        titleStr = 'Average Precision' if ap == 1 else 'Average Recall'
+        typeStr = '(AP)' if ap==1 else '(AR)'
+        iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
+            if iouThr is None else '{:0.2f}'.format(iouThr)
+
+        aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
+        mind = [i for i, mDet in enumerate(p.maxDets) if mDet == maxDets]
+        if ap == 1:
+            # dimension of precision: [TxRxKxAxM]
+            s = evaluator.eval['precision']
+            # IoU
+            if iouThr is not None:
+                t = np.where(iouThr == p.iouThrs)[0]
+                s = s[t]
+            s = s[:,:,:,aind,mind]
+        else:
+            # dimension of recall: [TxKxAxM]
+            s = evaluator.eval['recall']
+            if iouThr is not None:
+                t = np.where(iouThr == p.iouThrs)[0]
+                s = s[t]
+            s = s[:,:,aind,mind]
+        if len(s[s>-1])==0:
+            mean_s = -1
+        else:
+            mean_s = np.mean(s[s>-1])
+        print(iStr.format(titleStr, typeStr, iouStr, areaRng, maxDets, mean_s))
+        return mean_s
+
+    def _summarizeDets():
+        stats = np.zeros((16,))
+        iouThrs = evaluator.params.iouThrs
+        maxDets = evaluator.params.maxDets
+
+        stats[0] = _summarize(1)
+        stats[1] = _summarize(1, iouThr=.5, maxDets=maxDets[2])
+        stats[2] = _summarize(1, iouThr=.75, maxDets=maxDets[2])
+        stats[3] = _summarize(1, areaRng='small', maxDets=maxDets[2])
+        stats[4] = _summarize(1, areaRng='medium', maxDets=maxDets[2])
+        stats[5] = _summarize(1, areaRng='large', maxDets=maxDets[2])
+        stats[6] = _summarize(0, maxDets=maxDets[0])
+        stats[7] = _summarize(0, maxDets=maxDets[1])
+        stats[8] = _summarize(0, maxDets=maxDets[2])
+        stats[9] = _summarize(0, areaRng='small', maxDets=maxDets[2])
+        stats[10] = _summarize(0, areaRng='medium', maxDets=maxDets[2])
+        stats[11] = _summarize(0, areaRng='large', maxDets=maxDets[2])
+
+        stats[12] = _summarize(1, iouThr=iouThrs[2], maxDets=maxDets[2])
+        stats[13] = _summarize(1, iouThr=iouThrs[4], maxDets=maxDets[2])
+        stats[14] = _summarize(1, iouThr=iouThrs[6], maxDets=maxDets[2])
+        stats[15] = _summarize(1, iouThr=iouThrs[8], maxDets=maxDets[2])
+        return stats
+
+    def _summarizeKps():
+        stats = np.zeros((14,))
+        stats[0] = _summarize(1, maxDets=20)
+        stats[1] = _summarize(1, maxDets=20, iouThr=.5)
+        stats[2] = _summarize(1, maxDets=20, iouThr=.75)
+        stats[3] = _summarize(1, maxDets=20, areaRng='medium')
+        stats[4] = _summarize(1, maxDets=20, areaRng='large')
+        stats[5] = _summarize(0, maxDets=20)
+        stats[6] = _summarize(0, maxDets=20, iouThr=.5)
+        stats[7] = _summarize(0, maxDets=20, iouThr=.75)
+        stats[8] = _summarize(0, maxDets=20, areaRng='medium')
+        stats[9] = _summarize(0, maxDets=20, areaRng='large')
+
+        iouThrs = evaluator.params.iouThrs
+        stats[10] = _summarize(1, maxDets=20, iouThr=iouThrs[2])
+        stats[11] = _summarize(1, maxDets=20, iouThr=iouThrs[4])
+        stats[12] = _summarize(1, maxDets=20, iouThr=iouThrs[6])
+        stats[13] = _summarize(1, maxDets=20, iouThr=iouThrs[8])
+        return stats
+    if not evaluator.eval:
+        raise Exception('Please run accumulate() first')
+    iouType = evaluator.params.iouType
+    if iouType == 'segm' or iouType == 'bbox':
+        summarize = _summarizeDets
+    elif iouType == 'keypoints':
+        summarize = _summarizeKps
+    evaluator.stats = summarize()
 
 
 def evaluate_box_proposals(
-    json_dataset, roidb, thresholds=None, area='all', limit=None, class_specific=False
+    json_dataset, roidb, thresholds=None, area='all', limit=None
 ):
     """Evaluate detection proposal recall metrics. This function is a much
     faster alternative to the official COCO API recall evaluation code. However,
@@ -282,7 +362,6 @@ def evaluate_box_proposals(
     assert area in areas, 'Unknown area range: {}'.format(area)
     area_range = area_ranges[areas[area]]
     gt_overlaps = np.zeros(0)
-    gt_classes = np.zeros(0)
     num_pos = 0
     for entry in roidb:
         gt_inds = np.where(
@@ -292,9 +371,6 @@ def evaluate_box_proposals(
         valid_gt_inds = np.where(
             (gt_areas >= area_range[0]) & (gt_areas <= area_range[1]))[0]
         gt_boxes = gt_boxes[valid_gt_inds, :]
-        _gt_classes = entry["gt_classes"][valid_gt_inds]
-        assert gt_boxes.shape[0] == _gt_classes.shape[0]
-        gt_classes = np.hstack((gt_classes, _gt_classes))
         num_pos += len(valid_gt_inds)
         non_gt_inds = np.where(entry['gt_classes'] == 0)[0]
         boxes = entry['boxes'][non_gt_inds, :]
@@ -326,33 +402,19 @@ def evaluate_box_proposals(
         # append recorded iou coverage level
         gt_overlaps = np.hstack((gt_overlaps, _gt_overlaps))
 
+    gt_overlaps = np.sort(gt_overlaps)
     if thresholds is None:
         step = 0.05
         thresholds = np.arange(0.5, 0.95 + 1e-5, step)
+    recalls = np.zeros_like(thresholds)
+    # compute recall for each iou threshold
+    for i, t in enumerate(thresholds):
+        recalls[i] = (gt_overlaps >= t).sum() / float(num_pos)
+    # ar = 2 * np.trapz(recalls, thresholds)
+    ar = recalls.mean()
+    return {'ar': ar, 'recalls': recalls, 'thresholds': thresholds,
+            'gt_overlaps': gt_overlaps, 'num_pos': num_pos}
 
-    if not class_specific:
-        gt_overlaps = np.sort(gt_overlaps)
-        recalls = np.zeros_like(thresholds)
-        # compute recall for each iou threshold
-        for i, t in enumerate(thresholds):
-            recalls[i] = (gt_overlaps >= t).sum() / float(num_pos)
-        ar = recalls.mean()
-        return {'ar': ar, 'recalls': recalls, 'thresholds': thresholds,
-                'gt_overlaps': gt_overlaps, 'num_pos': num_pos}
-    else:
-        gt_classes_unique = np.unique(gt_classes)
-        recalls = np.zeros((gt_classes_unique.shape[0], thresholds.shape[0]))
-        # compute recall for each category and each iou threshold
-        for i, category_id in enumerate(gt_classes_unique):
-            inds = (gt_classes == category_id)
-            num_pos_per_category = float(inds.sum())
-            for j, thresh in enumerate(thresholds):
-                recalls[i][j] = (
-                    gt_overlaps[inds] >= thresh
-                ).sum() / num_pos_per_category
-        ar = recalls.mean(axis=1).mean()
-        return {'ar': ar, 'recalls': recalls, 'thresholds': thresholds,
-                'gt_overlaps': gt_overlaps, 'num_pos': num_pos}
 
 def evaluate_keypoints(
     json_dataset,
@@ -467,5 +529,6 @@ def _do_keypoint_eval(json_dataset, res_file, output_dir):
     eval_file = os.path.join(output_dir, 'keypoint_results.pkl')
     save_object(coco_eval, eval_file)
     logger.info('Wrote json eval results to: {}'.format(eval_file))
-    coco_eval.summarize()
+    # coco_eval.summarize()
+    _coco_summarize(coco_eval)
     return coco_eval

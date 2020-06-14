@@ -156,11 +156,7 @@ def evaluate_box_proposals(dataset, roidb):
     for limit in [100, 1000]:
         for area, suffix in areas.items():
             stats = json_dataset_evaluator.evaluate_box_proposals(
-                dataset,
-                roidb,
-                area=area,
-                limit=limit,
-                class_specific=cfg.TEST.CLASS_SPECIFIC_AR
+                dataset, roidb, area=area, limit=limit
             )
             key = 'AR{}@{:d}'.format(suffix, limit)
             res['box_proposal'][key] = stats['ar']
