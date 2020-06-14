@@ -1,8 +1,8 @@
 function add_cluster_annotation
 addpath('./MeanShift');
-gt_txt_path=['$VISDRONE/VisDrone2018-DET-train/annotations_coco_format_rename'];
-img_path='$VISDRONE/VisDrone2018-DET-train/images_coco_format_rename';
-gt_output_path='$VISDRONE/VisDrone2018-DET-train/annotations_add_cluster_coco_format_rename';
+gt_txt_path=['$VISDRONE/VisDrone2019-DET-train/annotations'];
+img_path='$VISDRONE/VisDrone2019-DET-train/images';
+gt_output_path='$VISDRONE/VisDrone2019-DET-train/annotations_add_cluster_coco_format_rename';
 gt_file_list=dir(fullfile(gt_txt_path,'*txt'));
 clus_top_n=10;
 dota_flag=0;
