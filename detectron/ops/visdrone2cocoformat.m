@@ -1,6 +1,6 @@
 function visdrone2cocoformat
 %% convert ground truth from visdrone to coco format
-addpath('./cocoapi-master/MatlabAPI');
+addpath('$COCOAPI/MatlabAPI');
 addpath('./meanshift');
 
 cls_name={'pedestrian', 'people', 'bicycle', 'car', 'van','truck', 'tricycle', 'awning-tricycle', 'bus', 'motor','cluster'};
