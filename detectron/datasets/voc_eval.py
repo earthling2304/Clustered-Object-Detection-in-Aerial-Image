@@ -22,13 +22,14 @@
 
 """Python implementation of the PASCAL VOC devkit's AP evaluation code."""
 
-import cPickle
+#import cPickle
 import logging
 import numpy as np
 import os
 import xml.etree.ElementTree as ET
 
-logger = logging.getLogger(__name__)
+from detectron.utils.io import load_object
+from detectron.utils.io import save_object
 
 
 def parse_rec(filename):
@@ -136,12 +137,10 @@ def voc_eval(detpath,
                         i + 1, len(imagenames)))
         # save
         logger.info('Saving cached annotations to {:s}'.format(cachefile))
-        with open(cachefile, 'w') as f:
-            cPickle.dump(recs, f)
+        save_object(recs, cachefile)
     else:
         # load
-        with open(cachefile, 'r') as f:
-            recs = cPickle.load(f)
+        recs = load_object(cachefile)
 
     # extract gt objects for this class
     class_recs = {}
