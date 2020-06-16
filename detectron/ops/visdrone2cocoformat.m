@@ -1,14 +1,15 @@
 function visdrone2cocoformat
 %% convert ground truth from visdrone to coco format
-addpath('/content/cocoapi/MatlabAPI');
-addpath('./meanshift');
+addpath('C:\Users\HP\cocoapi\MatlabAPI');
+addpath('C:\Users\HP\cocoapi\MatlabAPI\private');
+%%addpath('./meanshift');
 
 cls_name={'pedestrian', 'people', 'bicycle', 'car', 'van','truck', 'tricycle', 'awning-tricycle', 'bus', 'motor','cluster'};
 
-gt_path='$VISDRONE/VisDrone2019-DET-val/annotations';
+gt_path='C:\Users\HP\Visdrone\VisDrone2019-DET-val\annotations';
 gt_list=dir(fullfile(gt_path,'*txt'));
-im_path='$VISDRONE/VisDrone2019-DET-val/images';
-output_path='$VISDRONE/VisDrone2019-DET-val/coco_format_annotations';
+im_path='C:\Users\HP\Visdrone\VisDrone2019-DET-val\images';
+output_path='C:\Users\HP\Visdrone\VisDrone2019-DET-val\coco_format_annotations';
 output_file=fullfile(output_path,'cluster_CPNet.json');
 cls_num=length(cls_name);
 if ~exist(output_path)

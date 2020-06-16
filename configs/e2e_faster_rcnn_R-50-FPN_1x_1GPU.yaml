@@ -31,7 +31,7 @@ Cluster_RCNN:
   ROI_XFORM_SAMPLING_RATIO: 2
 TRAIN:
   WEIGHTS: ./pretrained_model/R-50.pkl
-  DATASETS: ('coco_2014_train', )
+  DATASETS: ('visdrone', )
   SCALES: (600,)
   MAX_SIZE: 1000
   BATCH_SIZE_PER_IM: 512
