@@ -207,8 +207,6 @@ _DATASETS = {
             _DATA_DIR + '/Visdrone/VisDrone2019-DET-train/images',
         _ANN_FN:
             _DATA_DIR + '/Visdrone/VisDrone2019-DET-train/coco_format_annotations/cluster_CPNet.json',
-        _DEVKIT_DIR:
-            _DATA_DIR + '/VOC2012/VOCdevkit2012'
 
     },
     'visdrone_val': {
@@ -216,8 +214,6 @@ _DATASETS = {
             _DATA_DIR + '/Visdrone/VisDrone2019-DET-val/images',
         _ANN_FN:
             _DATA_DIR + '/Visdrone/VisDrone2019-DET-val/coco_format_annotations/cluster_CPNet.json',
-        _DEVKIT_DIR:
-            _DATA_DIR + '/VOC2012/VOCdevkit2012'
 
     }
 
