@@ -30,7 +30,7 @@ Cluster_RCNN:
   ROI_XFORM_RESOLUTION: 7
   ROI_XFORM_SAMPLING_RATIO: 2
 TRAIN:
-  WEIGHTS: ./pretrained_model/R-50.pkl
+  WEIGHTS: https://dl.fbaipublicfiles.com/detectron/ImageNetPretrained/MSRA/R-50.pkl
   DATASETS: ('visdrone_data', )
   SCALES: (600,)
   MAX_SIZE: 1000
