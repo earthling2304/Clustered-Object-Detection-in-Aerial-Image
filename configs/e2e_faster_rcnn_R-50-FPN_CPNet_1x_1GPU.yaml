@@ -5,7 +5,7 @@ MODEL:
   FASTER_RCNN: True
   RPN_ONLY: False
   Cluster_RCNN_ON: True
-  #CLS_AGNOSTIC_BBOX_REG: True  # default: False
+  CLS_AGNOSTIC_BBOX_REG: True  # default: False
 NUM_GPUS: 1
 SOLVER:
   WEIGHT_DECAY: 0.0001
