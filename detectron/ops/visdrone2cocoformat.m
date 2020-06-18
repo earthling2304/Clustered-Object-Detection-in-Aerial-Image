@@ -6,10 +6,10 @@ addpath('C:\Users\HP\cocoapi\MatlabAPI\private');
 
 cls_name={'pedestrian', 'people', 'bicycle', 'car', 'van','truck', 'tricycle', 'awning-tricycle', 'bus', 'motor','cluster'};
 
-gt_path='C:\Users\HP\Visdrone\VisDrone2019-DET-val\annotations';
+gt_path='C:\Users\HP\Visdrone\VisDrone2019-DET-train\annotations';
 gt_list=dir(fullfile(gt_path,'*txt'));
-im_path='C:\Users\HP\Visdrone\VisDrone2019-DET-val\images';
-output_path='C:\Users\HP\Visdrone\VisDrone2019-DET-val\coco_format_annotations';
+im_path='C:\Users\HP\Visdrone\VisDrone2019-DET-train\images';
+output_path='C:\Users\HP\Visdrone\VisDrone2019-DET-train\coco_format_annotations';
 output_file=fullfile(output_path,'cluster_CPNet.json');
 cls_num=length(cls_name);
 if ~exist(output_path)

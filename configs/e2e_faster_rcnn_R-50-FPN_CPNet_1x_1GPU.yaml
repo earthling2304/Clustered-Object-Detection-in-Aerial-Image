@@ -12,7 +12,7 @@ SOLVER:
   LR_POLICY: steps_with_decay
   BASE_LR: 0.0025
   GAMMA: 0.1
-  MAX_ITER: 39000
+  MAX_ITER: 1000
   STEPS: [0, 26000, 34000]
 FPN:
   FPN_ON: True
@@ -47,3 +47,4 @@ TEST:
 OUTPUT_DIR: .
 VIS: False
 VIS_TH: 0.5
+
