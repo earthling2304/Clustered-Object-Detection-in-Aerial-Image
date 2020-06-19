@@ -60,7 +60,7 @@ def initialize_gpu_from_weights_file(model, weights_file, gpu_id=0):
     logger.info('Loading weights from: {}'.format(weights_file))
     ws_blobs = workspace.Blobs()
     print("WS blobs")
-    workspace.FeedBlob('gpu_0/mapped_gt_boxes', "")
+    workspace.FeedBlob('gpu_0/mapped_gt_boxes', "", 'cpu')
     print(ws_blobs)
     src_blobs = load_object(weights_file)
     if 'cfg' in src_blobs:
