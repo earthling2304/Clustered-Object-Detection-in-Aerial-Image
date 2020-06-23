@@ -138,6 +138,9 @@ def _sample_rois(roidb, im_scale, batch_idx):
     fg_rois_per_image = int(np.round(cfg.TRAIN.FG_FRACTION * rois_per_image))
     max_overlaps = roidb['max_overlaps']
 
+    max_classes = roidb['max_classes']
+
+
     # Select foreground RoIs as those with >= FG_THRESH overlap
     fg_inds = np.where(max_overlaps >= cfg.TRAIN.FG_THRESH)[0]
     # Guard against the case when an image has fewer than fg_rois_per_image
@@ -170,6 +173,19 @@ def _sample_rois(roidb, im_scale, batch_idx):
     sampled_labels = roidb['max_classes'][keep_inds]
     sampled_labels[fg_rois_per_this_image:] = 0  # Label bg RoIs with class 0
     sampled_boxes = roidb['boxes'][keep_inds]
+
+    # if cfg.MODEL.Cluster_RCNN_ON:
+    #     gt_inds = np.where((roidb['gt_classes'] > 0)&(roidb['gt_classes'] <cfg.MODEL.NUM_CLASSES-1))[0]
+    # else:
+    gt_inds = np.where(roidb['gt_classes'] > 0)[0]
+    gt_boxes = roidb['boxes'][gt_inds, :]
+    gt_assignments = gt_inds[roidb['box_to_gt_ind_map'][keep_inds]]
+
+    # [mapped_gt_boxes, max_overlaps]
+    mapped_gt_boxes = blob_utils.zeros((keep_inds.size, 5))
+    mapped_gt_boxes[:, :4] = gt_boxes[gt_assignments, :] * im_scale
+    mapped_gt_boxes[:, 4] = max_overlaps[keep_inds]
+    mapped_gt_boxes[fg_rois_per_this_image:, :] = 0
 
     bbox_targets, bbox_inside_weights = _expand_bbox_targets(
         roidb['bbox_targets'][keep_inds, :]
