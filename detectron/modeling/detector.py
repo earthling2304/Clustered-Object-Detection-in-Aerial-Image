@@ -139,11 +139,11 @@ class DetectionModelHelper(cnn.CNNModelHelper):
           - 'rpn_roi_probs': 1D tensor of objectness probability scores
             (extracted from rpn_cls_probs; see above).
         """
-        if cfg[cfg_key].GENERATE_PROPOSALS_ON_GPU:
-            rpn_pre_nms_topN = cfg[cfg_key].RPN_PRE_NMS_TOP_N
-            rpn_post_nms_topN = cfg[cfg_key].RPN_POST_NMS_TOP_N
-            rpn_nms_thresh = cfg[cfg_key].RPN_NMS_THRESH
-            rpn_min_size = float(cfg[cfg_key].RPN_MIN_SIZE)
+        if cfg.TRAIN.GENERATE_PROPOSALS_ON_GPU:
+            rpn_pre_nms_topN = cfg.TRAIN.RPN_PRE_NMS_TOP_N
+            rpn_post_nms_topN = cfg.TRAIN.RPN_POST_NMS_TOP_N
+            rpn_nms_thresh = cfg.TRAIN.RPN_NMS_THRESH
+            rpn_min_size = float(cfg.TRAIN.RPN_MIN_SIZE)
 
             input_name = str(blobs_in[0])
             lvl = int(input_name[-1]) if input_name[-1].isdigit() else None
