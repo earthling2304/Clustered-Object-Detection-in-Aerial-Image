@@ -157,6 +157,34 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
         workspace.FeedBlob(core.ScopedName(k), v)
     workspace.RunNet(model.net.Proto().name)
 
+        # Names for output blobs
+    if cfg.MODEL.Cluster_RCNN_ON:
+        rois_name = 'cluster_rois'
+        cls_prob_name = 'cluster_cls_prob'
+        bbox_pred_name = 'cluster_bbox_pred'
+    else:
+        rois_name = 'rois'
+        cls_prob_name = 'cls_prob'
+        bbox_pred_name = 'bbox_pred'
+    # bbox regression weights
+    bbox_reg_weights = cfg.MODEL.BBOX_REG_WEIGHTS
+    score_rescalar = 1.0
+    if cfg.MODEL.CASCADE_ON:
+        stage = cfg.CASCADE_RCNN.TEST_STAGE
+        if stage <= 0:
+            stage = cfg.CASCADE_RCNN.NUM_STAGE
+        assert stage <= cfg.CASCADE_RCNN.NUM_STAGE
+        if stage >= 2:
+            rois_name += '_{}'.format(stage)
+            cls_prob_name += '_{}'.format(stage)
+            bbox_pred_name += '_{}'.format(stage)
+            bbox_reg_weights = cfg.CASCADE_RCNN.BBOX_REG_WEIGHTS[stage - 1]
+        if cfg.CASCADE_RCNN.TEST_ENSEMBLE:
+            assert stage >= 2
+            cls_prob_name += '_sum'
+            score_rescalar /= stage
+
+
     # Read out blobs
     if cfg.MODEL.FASTER_RCNN:
         rois = workspace.FetchBlob(core.ScopedName('rois'))
