@@ -582,6 +582,26 @@ def verify_model(args, model_pb, test_img_file):
     print('Checking models...')
     assert mutils.compare_model(
         _run_cfg_func, _run_pb_func, test_img, check_blobs)
+def _export_to_logfiledb(args, net, init_net, inputs, out_file, extra_out_tensors=None):
+    out_tensors = list(net.Proto().external_output)
+    if extra_out_tensors is not None:
+        out_tensors += extra_out_tensors
+    params = list(set(net.Proto().external_input) - set(inputs))
+    net_type = None
+    predictor_export_meta = predictor_exporter.PredictorExportMeta(
+        predict_net=net,
+        parameters=params,
+        inputs=inputs,
+        outputs=out_tensors,
+        net_type=net_type,
+    )
+
+    logger.info("Exporting Caffe2 model to {}".format(out_file))
+    predictor_exporter.save_to_db(
+        db_type="log_file_db",
+        db_destination=out_file,
+        predictor_export_meta=predictor_export_meta,
+    )
 
 
 def main():
@@ -645,7 +665,11 @@ def main():
     if args.test_img is not None:
         verify_model(args, [net, init_net], args.test_img)
 
-    _save_models(net, init_net, args)
+    if args.logdb == 1:
+        output_file = os.path.join(args.out_dir, "model.logfiledb")
+        _export_to_logfiledb(args, net, init_net, empty_blobs, output_file)
+    else:
+    	_save_models(net, init_net, args)
 
 
 if __name__ == '__main__':

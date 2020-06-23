@@ -142,6 +142,8 @@ __C.TRAIN.ASPECT_GROUPING = True
 # RPN training options
 # ---------------------------------------------------------------------------- #
 
+# Run GenerateProposals on GPU if set to True
+__C.TRAIN.GENERATE_PROPOSALS_ON_GPU = False
 # Minimum overlap required between an anchor and ground-truth box for the
 # (anchor, gt box) pair to be a positive example (IOU >= thresh ==> positive RPN
 # example)
@@ -246,6 +248,8 @@ __C.TEST.BBOX_REG = True
 # Test using these proposal files (must correspond with TEST.DATASETS)
 __C.TEST.PROPOSAL_FILES = ()
 
+# Run GenerateProposals on GPU if set to True
+__C.TEST.GENERATE_PROPOSALS_ON_GPU = False
 # Limit on the number of proposals per image used during inference
 __C.TEST.PROPOSAL_LIMIT = 2000
 
@@ -289,6 +293,11 @@ __C.TEST.FORCE_JSON_DATASET_EVAL = False
 # Not set for 1-stage models and 2-stage models with RPN subnetwork enabled
 __C.TEST.PRECOMPUTED_PROPOSALS = True
 
+# Evaluate proposals in class-specific Average Recall (AR).
+# It means that one first computes AR within each category and then averages
+# over the categories. It is not biased towards the AR of frequent categories
+# compared with class-agnostic AR.
+__C.TEST.CLASS_SPECIFIC_AR = False
 
 # ---------------------------------------------------------------------------- #
 # Test-time augmentations for bounding box detection
