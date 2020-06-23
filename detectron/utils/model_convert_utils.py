@@ -344,6 +344,8 @@ def get_device_option_cuda(gpu_id=0):
     device_option = caffe2_pb2.DeviceOption()
     device_option.device_type = caffe2_pb2.CUDA
     device_option.device_id = gpu_id
+    print("GPU ID HERE:")
+    print(gpu_id)
     return device_option
 
 
