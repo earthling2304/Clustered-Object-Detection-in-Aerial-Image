@@ -148,8 +148,7 @@ def py_op_copy_blob(blob_in, blob_out):
     needs_int32_init = False
     print("EHHHH:")
 
-    print(type(blob_in))
-    print(type(blob_out))
+
     try:
         _ = blob.data.dtype  # noqa
     except Exception:
@@ -160,6 +159,8 @@ def py_op_copy_blob(blob_in, blob_out):
     else:
         blob_out.reshape(blob_in.shape)
     blob_out.data[...] = blob_in
+    print(type(blob_in))
+    print(type(blob_out))
 
 
 def get_loss_gradients(model, loss_blobs):
