@@ -255,7 +255,7 @@ class JsonDataset(object):
 
         id_field = 'indexes' if 'indexes' in proposals else 'ids'  # compat fix
 
-        _remove_proposals_not_in_roidb(proposals, roidb, id_field)
+        #_remove_proposals_not_in_roidb(proposals, roidb, id_field)
         _sort_proposals(proposals, id_field)
         box_list = []
         for i, entry in enumerate(roidb):
