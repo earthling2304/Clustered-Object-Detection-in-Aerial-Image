@@ -147,10 +147,9 @@ def py_op_copy_blob(blob_in, blob_out):
     # Some awkward voodoo required by Caffe2 to support int32 blobs
     needs_int32_init = False
     print("EHHHH:")
-	print(type(blob))
-	print(type(blob.data))
-	print(type(blob_in))
-	print(type(blob_out))
+
+    print(type(blob_in))
+    print(type(blob_out))
     try:
         _ = blob.data.dtype  # noqa
     except Exception:
