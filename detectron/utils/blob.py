@@ -159,8 +159,8 @@ def py_op_copy_blob(blob_in, blob_out):
     else:
         blob_out.reshape(blob_in.shape)
     blob_out.data[...] = blob_in
-    print(type(blob_in))
-    print(type(blob_out))
+    print(blob_in)
+    print(blob_out)
 
 
 def get_loss_gradients(model, loss_blobs):
