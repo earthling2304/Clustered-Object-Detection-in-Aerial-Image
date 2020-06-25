@@ -1,7 +1,7 @@
 MODEL:
   TYPE: generalized_rcnn
   CONV_BODY: FPN.add_fpn_ResNet50_conv5_body
-  NUM_CLASSES: 12 #visdrone categories+cluster
+  NUM_CLASSES: 81 #visdrone categories+cluster
   FASTER_RCNN: True
   RPN_ONLY: False
   Cluster_RCNN_ON: True
