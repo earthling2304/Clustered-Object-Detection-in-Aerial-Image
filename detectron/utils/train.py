@@ -64,6 +64,8 @@ def train_model():
             handle_critical_error(model, 'roi_data_loader failed')
         training_stats.IterTic()
         lr = model.UpdateWorkspaceLr(cur_iter, lr_policy.get_lr_at_iter(cur_iter))
+        print("name:")
+        print(model.net.Proto().name)
         workspace.RunNet(model.net.Proto().name)
         if cur_iter == start_iter:
             nu.print_net(model)
