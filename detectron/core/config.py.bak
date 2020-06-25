@@ -143,7 +143,7 @@ __C.TRAIN.ASPECT_GROUPING = True
 # ---------------------------------------------------------------------------- #
 
 # Run GenerateProposals on GPU if set to True
-__C.TRAIN.GENERATE_PROPOSALS_ON_GPU = False
+__C.TRAIN.GENERATE_PROPOSALS_ON_GPU = True
 # Minimum overlap required between an anchor and ground-truth box for the
 # (anchor, gt box) pair to be a positive example (IOU >= thresh ==> positive RPN
 # example)
