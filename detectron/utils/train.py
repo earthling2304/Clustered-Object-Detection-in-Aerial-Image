@@ -64,45 +64,36 @@ def train_model():
             handle_critical_error(model, 'roi_data_loader failed')
         training_stats.IterTic()
         lr = model.UpdateWorkspaceLr(cur_iter, lr_policy.get_lr_at_iter(cur_iter))
-        print("name:")
         print(model.net.Proto().name)
         workspace.RunNet(model.net.Proto().name)
         if cur_iter == start_iter:
-            print("start iter")
             nu.print_net(model)
         training_stats.IterToc()
         training_stats.UpdateIterStats()
         training_stats.LogIterStats(cur_iter, lr)
 
-        print("DEBUG 1")
 
         if (cur_iter + 1) % CHECKPOINT_PERIOD == 0 and cur_iter > start_iter:
             checkpoints[cur_iter] = os.path.join(
                 output_dir, 'model_iter{}.pkl'.format(cur_iter)
             )
             nu.save_model_to_weights_file(checkpoints[cur_iter], model)
-        print("DEBUG 2")
 
         if cur_iter == start_iter + training_stats.LOG_PERIOD:
             # Reset the iteration timer to remove outliers from the first few
             # SGD iterations
             training_stats.ResetIterTimer()
-        print("DEBUG 3")
 
         if np.isnan(training_stats.iter_total_loss):
             handle_critical_error(model, 'Loss is NaN')
-        print("DEBUG 4")
 
     # Save the final model
     checkpoints['final'] = os.path.join(output_dir, 'model_final.pkl')
-    print("DEBUG 5")
 
     nu.save_model_to_weights_file(checkpoints['final'], model)
     # Shutdown data loading threads
-    print("DEBUG 6")
 
     model.roi_data_loader.shutdown()
-    print("DEBUG 7")
 
     return checkpoints
 
