@@ -56,7 +56,7 @@ def get_fast_rcnn_blob_names(is_training=True):
         blob_names += ['bbox_inside_weights']
         blob_names += ['bbox_outside_weights']
         blob_names += ['mapped_gt_boxes']
-    if is_training and cfg.MODEL.MASK_ON:# and cfg.MRCNN.AT_STAGE == 1:
+    if is_training and cfg.MODEL.MASK_ON:
         # 'mask_rois': RoIs sampled for training the mask prediction branch.
         # Shape is (#masks, 5) in format (batch_idx, x1, y1, x2, y2).
         blob_names += ['mask_rois']
@@ -69,7 +69,7 @@ def get_fast_rcnn_blob_names(is_training=True):
         # 'mask_rois'. Shape is (#fg, M * M) where M is the ground truth
         # mask size.
         blob_names += ['masks_int32']
-    if is_training and cfg.MODEL.KEYPOINTS_ON:#  and cfg.KRCNN.AT_STAGE == 1:
+    if is_training and cfg.MODEL.KEYPOINTS_ON  and cfg.KRCNN.AT_STAGE == 1:
         # 'keypoint_rois': RoIs sampled for training the keypoint prediction
         # branch. Shape is (#instances, 5) in format (batch_idx, x1, y1, x2,
         # y2).
@@ -95,7 +95,7 @@ def get_fast_rcnn_blob_names(is_training=True):
             blob_names += ['rois_fpn' + str(lvl)]
         blob_names += ['rois_idx_restore_int32']
         if is_training:
-            if cfg.MODEL.MASK_ON:# and cfg.MRCNN.AT_STAGE == 1:
+            if cfg.MODEL.MASK_ON and cfg.MRCNN.AT_STAGE == 1:
                 for lvl in range(k_min, k_max + 1):
                     blob_names += ['mask_rois_fpn' + str(lvl)]
                 blob_names += ['mask_rois_idx_restore_int32']
@@ -124,7 +124,7 @@ def add_fast_rcnn_blobs(blobs, im_scales, roidb):
     # Perform any final work and validity checks after the collating blobs for
     # all minibatch images
     valid = True
-    if cfg.MODEL.KEYPOINTS_ON:#  and cfg.KRCNN.AT_STAGE == 1:
+    if cfg.MODEL.KEYPOINTS_ON  and cfg.KRCNN.AT_STAGE == 1:
         valid = keypoint_rcnn_roi_data.finalize_keypoint_minibatch(blobs, valid)
 
     return valid
@@ -209,13 +209,13 @@ def _sample_rois(roidb, im_scale, batch_idx):
     )
 
     # Optionally add Mask R-CNN blobs
-    if cfg.MODEL.MASK_ON:# and cfg.MRCNN.AT_STAGE == 1:
+    if cfg.MODEL.MASK_ON and cfg.MRCNN.AT_STAGE == 1:
         mask_rcnn_roi_data.add_mask_rcnn_blobs(
             blob_dict, sampled_boxes, roidb, im_scale, batch_idx
         )
 
     # Optionally add Keypoint R-CNN blobs
-    if cfg.MODEL.KEYPOINTS_ON:# and cfg.KRCNN.AT_STAGE == 1:
+    if cfg.MODEL.KEYPOINTS_ON and cfg.KRCNN.AT_STAGE == 1:
         keypoint_rcnn_roi_data.add_keypoint_rcnn_blobs(
             blob_dict, roidb, fg_rois_per_image, fg_inds, im_scale, batch_idx
         )
